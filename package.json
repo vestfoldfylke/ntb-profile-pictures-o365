@@ -1,0 +1,26 @@
+{
+  "name": "ntb-profile-pictures-o365",
+  "version": "1.0.0",
+  "description": "Scripts reading profile pictures from NTB Mediabank and imports them to O365",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vestfoldfylke/ntb-profile-pictures-o365.git"
+  },
+  "author": "Jørgen og Nils",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/vestfoldfylke/ntb-profile-pictures-o365/issues"
+  },
+  "homepage": "https://github.com/vestfoldfylke/ntb-profile-pictures-o365#readme",
+  "dependencies": {
+    "@vestfoldfylke/msal-token": "^1.0.1",
+    "@vtfk/logger": "^6.1.0",
+    "axios": "^1.6.7",
+    "dotenv": "^16.4.1",
+    "file-system-cache": "^2.4.4"
+  }
+}

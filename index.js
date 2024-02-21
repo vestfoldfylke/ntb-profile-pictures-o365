@@ -1,0 +1,128 @@
+(async () => {
+  const { sendEmail } = require('./lib/send-email')
+  const { updateGraphPhoto } = require('./lib/call-graph')
+  const { IMPORTED_KEYWORD } = require('./config')
+  const { createLocalLogger } = require('./lib/local-logger')
+  const { validateUserFromPhoto } = require('./lib/validate-user-from-photo')
+  const { getPhotosFromAlbum, getPreviewPhotoAsBase64, updatePhoto } = require('./lib/call-ntb')
+  const { logger, logConfig } = require('@vtfk/logger')
+  const { writeFileSync } = require('fs')
+
+  logConfig({
+    prefix: '',
+    teams: {
+      onlyInProd: false
+    },
+    localLogger: createLocalLogger('main')
+  })
+
+  let photos
+  logger('info', ['Henter alle fotos fra profilbildealbumet'])
+  try {
+    photos = await getPhotosFromAlbum()
+  } catch (error) {
+    logger('error', ['Feilet ved henting av fotos fra profilbildealbumet.', error.response?.data || error.stack || error.toString()])
+    process.exit(1)
+  }
+  logger('info', ['Filtrerer vekk fotos som allerede er importert'])
+  const photosNotImported = photos.filter(photo => !photo.keywords.includes(IMPORTED_KEYWORD))
+  writeFileSync('./ignore/allPhotos.json', JSON.stringify(photos, null, 2))
+  // filtrere vekk de som allerede er importert i M365
+  const photosWithUserData = []
+  const photosWithoutUserData = []
+  // let index = 0 // just for testing
+  for (const photo of photosNotImported) {
+    try {
+      logger('info', [`Leter etter rett bruker for foto ${photo.file.originalFilename} - ${photo.headline}`])
+      const user = await validateUserFromPhoto(photo)
+      if (user) {
+        photosWithUserData.push({ photo, user })
+        logger('info', [`Fant bruker: ${user.userPrincipalName} for foto: ${photo.file.originalFilename} - ${photo.headline}`])
+      } else {
+        photosWithoutUserData.push({ originalFileName: photo.file.originalFilename, headline: photo.headline, photoLink: photo._links.previewPage, id: photo.id })
+        logger('info', [`Fant ikke bruker for foto: ${photo.file.originalFilename} - ${photo.headline}`])
+      }
+    } catch (error) {
+      logger('error', [`Feilet ved validering og henting av bruker for foto ${photo.file.originalFilename} - ${photo.headline}`, error.response?.data || error.stack || error.toString()])
+    }
+    // index++ // just for testing
+    // if (index >= 5) break //just for testing
+  }
+  const photosToHandle = []
+  logger('info', ['Sjekker om det finnes flere bilder på samme bruker og henter det nyeste'])
+  for (const photo of photosWithUserData) {
+    if (photosToHandle.find(photoToHandle => photoToHandle.user.userPrincipalName === photo.user.userPrincipalName)) continue
+    const userPhotos = photosWithUserData.filter(userPhoto => userPhoto.user.userPrincipalName === photo.user.userPrincipalName)
+    userPhotos.sort((userPhoto1, userPhoto2) => new Date(userPhoto2.photo.dateArchived) - new Date(userPhoto1.photo.dateArchived))
+    let detGikkSkeis = false
+    for (const userPhoto of userPhotos.slice(1)) { // setter importert-tag på evt. alternative bilder slik at disse ikke blir import ved neste kjøring (veldig spesiell case dersom noen har lastet opp flere bilder av samme person på samme dag)
+      try {
+        const propertiesToUpdate = {
+          keywords: [...userPhoto.photo.keywords, IMPORTED_KEYWORD]
+        }
+        await updatePhoto(userPhoto.photo.id, propertiesToUpdate)
+      } catch (error) {
+        detGikkSkeis = true
+        logger('error', [`Feilet ved oppdatering av metadata på foto i NTB - ${photo.photo.file.originalFilename}`, error.response?.data || error.stack || error.toString()])
+      }
+    }
+    if (!detGikkSkeis) photosToHandle.push(userPhotos[0])
+  }
+  for (const photo of photosToHandle) {
+    let photoAsBase64
+    try {
+      logger('info', [`Henter preview foto for bruker: ${photo.user.userPrincipalName} - foto: ${photo.photo.file.originalFilename} - ${photo.photo.headline}`])
+      photoAsBase64 = await getPreviewPhotoAsBase64(photo.photo.previews['1024'].url)
+    } catch (error) {
+      logger('error', [`Feilet ved nedlasting av preview for ${photo.photo.file.originalFilename}`, error.response?.data || error.stack || error.toString()])
+      continue
+    }
+    try {
+      logger('info', [`Oppdaterer foto for bruker i Graph: ${photo.user.userPrincipalName} - foto: ${photo.photo.file.originalFilename} - ${photo.photo.headline}`])
+      await updateGraphPhoto(photo.user.userPrincipalName, photoAsBase64)
+    } catch (error) {
+      logger('error', [`Feilet ved oppdatering av bilde i Graph - ${photo.photo.file.originalFilename}`, error.response?.data || error.stack || error.toString()])
+      continue
+    }
+    try {
+      logger('info', [`Oppdaterer metadata for foto for bruker i NTB: ${photo.user.userPrincipalName} - foto: ${photo.photo.file.originalFilename} - ${photo.photo.headline}`])
+      const propertiesToUpdate = {
+        keywords: [...photo.photo.keywords, IMPORTED_KEYWORD]
+      }
+      await updatePhoto(photo.photo.id, propertiesToUpdate)
+    } catch (error) {
+      logger('error', [`Feilet ved oppdatering av metadata på bildet i NTB - ${photo.photo.file.originalFilename}`, error.response?.data || error.stack || error.toString()])
+    }
+  }
+  writeFileSync('./ignore/photosWithUserData.json', JSON.stringify(photosWithUserData, null, 2))
+  writeFileSync('./ignore/photosWithoutUserData.json', JSON.stringify(photosWithoutUserData, null, 2))
+  if (photosWithoutUserData.length > 0) {
+    const photosToFix = photosWithoutUserData.map(photo => {
+      return `<li><a href="${photo.photoLink}">${photo.originalFileName} ${photo.headline ? ' (' + photo.headline + ')' : ''}</a></li>`
+    })
+    const emailBody = `Hei! <br><br>I forbindelse med opplasting av profilbilder fra NTB Mediebank til M365, er det oppstått <b>${photosToFix.length}</b> feil som må fikses. Som oftest skyldes feilen at tittel 
+    på bildet ikke er en gyldig epostadresse. Søk opp brukeren i for eksempel Teams, hent ut riktig epostadresse og endre tittelen på bildet. <b>Husk å lagre etterpå</b>. Dersom brukeren har sluttet, må du slette
+    bildet. <br><br>Her følger listen over feil: <br><br><ul>${photosToFix.join('')}</ul><br>Det vil da bli gjort et nytt forsøk ved neste intervall.`
+
+    const subject = 'Feillogg import av bilder til M365'
+    try {
+      logger('info', ['Sender epost med feilrapport'])
+      await sendEmail(subject, emailBody)
+    } catch (error) {
+      logger('error', ['Feilet ved sending av feilrapport', error.response?.data || error.stack || error.toString()])
+    }
+  } else logger('info', ['Nothing to report'])
+
+  // map alle bilder i photoswithoutuserdata; returnerer en ny liste med det vi har gjort
+  // For hvert bilde, lag et listelement-tag (LI) som inneholder eks. bildenavn, bildeid og lenka til bildet (a href)
+  // Lag guide: søk opp bruker, kopier epostadresse og sett dette som tittel på bildet og lagre
+})()
+
+/*
+For hvert bilde;
+
+  hvis ikke eksisterende upn; send varsel til noen med bildenavnet. Varslet caches med utløpsdato. Slik at vi ikke sender nytt varsel på samme bilde før utløpsdatoen er nådd.
+
+  (Gå gjennom bildene som har taggen importert satt, og sjekk om dette er det samme bildet som ligger i M365)
+
+*/
