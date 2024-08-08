@@ -24,6 +24,7 @@ module.exports = {
     FROM: process.env.MAIL_FROM || 'noreply@vestfoldfylke.no',
     URL: process.env.MAIL_URL,
     KEY: process.env.MAIL_KEY,
-    TEMPLATE_NAME: process.env.MAIL_TEMPLATE_NAME || 'vestfoldfylke'
+    TEMPLATE_NAME: process.env.MAIL_TEMPLATE_NAME || 'vestfoldfylke',
+    DEVELOPER_EMAIL: (process.env.MAIL_DEVELOPER_EMAIL && process.env.MAIL_DEVELOPER_EMAIL.split(',')) || null,
   }
 }

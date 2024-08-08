@@ -1,10 +1,10 @@
 (async () => {
   const { sendEmail } = require('./lib/send-email')
   const { updateGraphPhoto } = require('./lib/call-graph')
-  const { IMPORTED_KEYWORD } = require('./config')
+  const { IMPORTED_KEYWORD, MAIL } = require('./config')
   const { createLocalLogger } = require('./lib/local-logger')
   const { validateUserFromPhoto } = require('./lib/validate-user-from-photo')
-  const { getPhotosFromAlbum, getPreviewPhotoAsBase64, updatePhoto } = require('./lib/call-ntb')
+  const { getPhotosFromAlbum, getPreviewPhotoAsBase64, getPreviewPhotoRaw, updatePhoto } = require('./lib/call-ntb')
   const { logger, logConfig } = require('@vtfk/logger')
   const { writeFileSync } = require('fs')
 
@@ -30,6 +30,7 @@
   // filtrere vekk de som allerede er importert i M365
   const photosWithUserData = []
   const photosWithoutUserData = []
+  const photosWithErrors = []
   // let index = 0 // just for testing
   for (const photo of photosNotImported) {
     try {
@@ -44,6 +45,7 @@
       }
     } catch (error) {
       logger('error', [`Feilet ved validering og henting av bruker for foto ${photo.file.originalFilename} - ${photo.headline}`, error.response?.data || error.stack || error.toString()])
+      photosWithErrors.push({ originalFileName: photo.file?.originalFilename, headline: photo.headline, photoLink: photo._links?.previewPage, id: photo.id, errorMessage: error.response?.data || error.stack || error.toString() })
     }
     // index++ // just for testing
     // if (index >= 5) break //just for testing
@@ -64,24 +66,27 @@
       } catch (error) {
         detGikkSkeis = true
         logger('error', [`Feilet ved oppdatering av metadata på foto i NTB - ${photo.photo.file.originalFilename}`, error.response?.data || error.stack || error.toString()])
+        photosWithErrors.push({ originalFileName: userPhoto.photo?.file?.originalFilename, headline: userPhoto.photo?.headline, photoLink: userPhoto.photo?._links?.previewPage, id: userPhoto.photo?.id, errorMessage: error.response?.data || error.stack || error.toString() })
       }
     }
     if (!detGikkSkeis) photosToHandle.push(userPhotos[0])
   }
   for (const photo of photosToHandle) {
-    let photoAsBase64
+    let photoRaw
     try {
       logger('info', [`Henter preview foto for bruker: ${photo.user.userPrincipalName} - foto: ${photo.photo.file.originalFilename} - ${photo.photo.headline}`])
-      photoAsBase64 = await getPreviewPhotoAsBase64(photo.photo.previews['1024'].url)
+      photoRaw = await getPreviewPhotoRaw(photo.photo.previews['1024'].url)
     } catch (error) {
       logger('error', [`Feilet ved nedlasting av preview for ${photo.photo.file.originalFilename}`, error.response?.data || error.stack || error.toString()])
+      photosWithErrors.push({ originalFileName: photo.photo?.file?.originalFilename, headline: photo.photo?.headline, photoLink: photo.photo?._links?.previewPage, id: photo.photo?.id, errorMessage: error.response?.data || error.stack || error.toString() })
       continue
     }
     try {
       logger('info', [`Oppdaterer foto for bruker i Graph: ${photo.user.userPrincipalName} - foto: ${photo.photo.file.originalFilename} - ${photo.photo.headline}`])
-      await updateGraphPhoto(photo.user.userPrincipalName, photoAsBase64)
+      await updateGraphPhoto(photo.user.userPrincipalName, photoRaw)
     } catch (error) {
       logger('error', [`Feilet ved oppdatering av bilde i Graph - ${photo.photo.file.originalFilename}`, error.response?.data || error.stack || error.toString()])
+      photosWithErrors.push({ originalFileName: photo.photo?.file?.originalFilename, headline: photo.photo?.headline, photoLink: photo.photo?._links?.previewPage, id: photo.photo?.id, errorMessage: error.response?.data || error.stack || error.toString() })
       continue
     }
     try {
@@ -92,6 +97,7 @@
       await updatePhoto(photo.photo.id, propertiesToUpdate)
     } catch (error) {
       logger('error', [`Feilet ved oppdatering av metadata på bildet i NTB - ${photo.photo.file.originalFilename}`, error.response?.data || error.stack || error.toString()])
+      photosWithErrors.push({ originalFileName: photo.photo?.file?.originalFilename, headline: photo.photo?.headline, photoLink: photo.photo?._links?.previewPage, id: photo.photo?.id, errorMessage: error.response?.data || error.stack || error.toString() })
     }
   }
   writeFileSync('./ignore/photosWithUserData.json', JSON.stringify(photosWithUserData, null, 2))
@@ -111,8 +117,32 @@
     } catch (error) {
       logger('error', ['Feilet ved sending av feilrapport', error.response?.data || error.stack || error.toString()])
     }
-  } else logger('info', ['Nothing to report'])
-
+  } else {
+    logger('info', ['Nothing to report'])
+  }
+  if (photosWithErrors.length > 0) {
+    const photosToCheck = photosWithErrors.map(photo => {
+      return `<li>${photo.id}-${photo.headline}-${photo.originalFileName}<a href="${photo.photoLink}">${photo.originalFileName} ${photo.headline ? ' (' + photo.headline + ')' : ''}</a> Error:${JSON.stringify(photo.errorMessage)}</li>`
+    })
+    const emailBody = `Øyøyøy! Her har det skjedd noe feil i forbindelse med overføring av profilbilder til O365<br>Her følger listen over feil: <br><br><ul>${photosToCheck.join('')}</ul><br>Det vil da bli gjort et nytt forsøk ved neste intervall.`
+    const subject = 'Feilmeldinger ved import av bilder til M365'
+    try {
+      logger('info', ['Sender epost med feilrapport'])
+      await sendEmail(subject, emailBody, MAIL.DEVELOPER_EMAIL)
+    } catch (error) {
+      logger('error', ['Feilet ved sending av feilrapport', error.response?.data || error.stack || error.toString()])
+    }
+  } else {
+    logger('info', ['Nothing to report'])
+    const emailBody = 'All is good!'
+    const subject = 'Import av bilder til M365'
+    try {
+      logger('info', ['Sender epost med OK-rapport'])
+      await sendEmail(subject, emailBody, MAIL.DEVELOPER_EMAIL)
+    } catch (error) {
+      logger('error', ['Feilet ved sending av OK-rapport', error.response?.data || error.stack || error.toString()])
+    }
+  }
   // map alle bilder i photoswithoutuserdata; returnerer en ny liste med det vi har gjort
   // For hvert bilde, lag et listelement-tag (LI) som inneholder eks. bildenavn, bildeid og lenka til bildet (a href)
   // Lag guide: søk opp bruker, kopier epostadresse og sett dette som tittel på bildet og lagre
