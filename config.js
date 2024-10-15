@@ -1,5 +1,6 @@
 require('dotenv').config()
 module.exports = {
+  NODE_ENV: process.env.NODE_ENV || 'development',
   UPN_SUFFIX: process.env.UPN_SUFFIX || 'vestfoldfylke.no',
   IMPORTED_KEYWORD: process.env.IMPORTED_KEYWORD || 'importertM365',
   NTB: {
