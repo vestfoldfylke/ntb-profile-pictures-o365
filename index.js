@@ -24,11 +24,11 @@
     process.exit(1)
   }
   let photos
-  logger('info', ['Henter alle fotos fra profilbildealbumet'])
+  logger('info', ['Henter alle fotos fra profilbilde-collection i NTB'])
   try {
     photos = await getPhotosFromCollection(COLLECTION_ID_PROFILBILDER)
   } catch (error) {
-    logger('error', ['Feilet ved henting av fotos fra profilbildealbumet.', error.response?.data || error.stack || error.toString()])
+    logger('error', ['Feilet ved henting av fotos fra profilbilde-collection.', error.response?.data || error.stack || error.toString()])
     process.exit(1)
   }
   logger('info', ['Filtrerer vekk fotos som allerede er importert'])
