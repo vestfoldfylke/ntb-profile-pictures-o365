@@ -1,10 +1,10 @@
 (async () => {
   const { sendEmail } = require('./lib/send-email')
   const { updateGraphPhoto } = require('./lib/call-graph')
-  const { IMPORTED_KEYWORD, MAIL } = require('./config')
+  const { IMPORTED_KEYWORD, MAIL, NTB: { COLLECTION_ID_PROFILBILDER } } = require('./config')
   const { createLocalLogger } = require('./lib/local-logger')
   const { validateUserFromPhoto } = require('./lib/validate-user-from-photo')
-  const { getPhotosFromAlbum, getPreviewPhotoAsBase64, getPreviewPhotoRaw, updatePhoto, getNtbUsers } = require('./lib/call-ntb')
+  const { getPhotosFromCollection, getPreviewPhotoAsBase64, getPreviewPhotoRaw, updatePhoto, getNtbUsers } = require('./lib/call-ntb')
   const { logger, logConfig } = require('@vtfk/logger')
   const { writeFileSync } = require('fs')
 
@@ -26,7 +26,7 @@
   let photos
   logger('info', ['Henter alle fotos fra profilbildealbumet'])
   try {
-    photos = await getPhotosFromAlbum()
+    photos = await getPhotosFromCollection(COLLECTION_ID_PROFILBILDER)
   } catch (error) {
     logger('error', ['Feilet ved henting av fotos fra profilbildealbumet.', error.response?.data || error.stack || error.toString()])
     process.exit(1)

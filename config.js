@@ -8,7 +8,8 @@ module.exports = {
     CLIENT_SECRET: process.env.NTB_CLIENT_SECRET,
     TOKEN_URL: process.env.NTB_TOKEN_URL,
     TOKEN_AUDIENCE: process.env.NTB_TOKEN_AUDIENCE,
-    API_URL: process.env.NTB_API_URL
+    API_URL: process.env.NTB_API_URL,
+    COLLECTION_ID_PROFILBILDER: process.env.NTB_COLLECTION_ID_PROFILBILDER
   },
   APPREG: {
     CLIENT_ID: process.env.APPREG_CLIENT_ID,
