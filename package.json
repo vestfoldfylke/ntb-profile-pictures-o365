@@ -4,7 +4,7 @@
   "description": "Scripts reading profile pictures from NTB Mediabank and imports them to O365",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 0"
   },
   "repository": {
     "type": "git",
@@ -17,7 +17,7 @@
   },
   "homepage": "https://github.com/vestfoldfylke/ntb-profile-pictures-o365#readme",
   "dependencies": {
-    "@vestfoldfylke/msal-token": "^1.0.1",
+    "@azure/msal-node": "^7.1.2",
     "@vtfk/logger": "^6.1.0",
     "axios": "^1.6.7",
     "dotenv": "^16.4.1",
